@@ -66,8 +66,9 @@ O backend é responsável por receber as imagens do frontend e processar o recon
 
 3. Instale as dependências:
    ```bash
-   pip install fastapi uvicorn opencv-python-headless numpy pydantic python-multipart python-dotenv supabase
+   pip install -r requirements.txt
    ```
+   > As dependências principais incluem: `fastapi`, `uvicorn`, `opencv-python-headless`, `numpy`, `pydantic`, `python-multipart`, `python-dotenv`, `supabase` e `imutils`.
 
 4. Configure as variáveis de ambiente:
    - Duplique o arquivo `.env.example` e renomeie para `.env`.
@@ -122,4 +123,4 @@ O frontend contém a interface do professor, o gerador de PDF do gabarito e o po
 ## 💡 Dicas de Desenvolvimento
 
 - **Gerar o Gabarito em PDF:** Acesse `/template` e use o atalho nativo do navegador (`Ctrl+P` ou `Cmd+P`). O CSS (`@media print`) garante que apenas o layout de leitura A4 seja impresso sem os botões e sem as bordas de margem, o que é crucial para a precisão do OpenCV.
-- **PoC OpenCV:** O script `backend/omr_engine.py` atualmente contém um mock na função `get_choices()`. Quando for passar para produção com os scans reais da sua escola, você ativará a detecção real dos círculos na imagem lá dentro.
+- **PoC OpenCV:** O script `backend/omr_engine.py` já está usando Visão Computacional real! Ele localiza a folha através das bordas (Canny), corta, faz a correção de perspectiva, isola as bolinhas do template (divididas em duas colunas) e calcula a densidade de pixels brancos para descobrir se a bolinha foi preenchida ou deixada em branco.
