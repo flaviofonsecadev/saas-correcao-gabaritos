@@ -30,7 +30,7 @@ def four_point_transform(image, pts):
     warped = cv2.warpPerspective(image, M, (maxWidth, maxHeight))
     return warped
 
-def process_omr(image_bytes, num_questions=20):
+def process_omr(image_bytes, answer_key):
     """
     Função REAL de processamento OMR.
     1. Acha as bordas da folha e faz o warp perspective.
@@ -38,7 +38,12 @@ def process_omr(image_bytes, num_questions=20):
     3. Acha as bolinhas baseadas em tamanho e aspecto (ar).
     4. Separa a folha em duas colunas (esquerda/direita) baseada no nosso template.
     5. Lê a intensidade de pixels pretos em cada bolinha e define a alternativa marcada.
+    6. Compara com o gabarito oficial (answer_key) e gera o boletim.
     """
+    
+    # Se o answer_key for uma lista ou int, garante fallback para testar
+    num_questions = len(answer_key) if isinstance(answer_key, dict) else 20
+    
     nparr = np.frombuffer(image_bytes, np.uint8)
     image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     
@@ -63,13 +68,15 @@ def process_omr(image_bytes, num_questions=20):
                 docCnt = approx
                 break
 
-    # Se não achou 4 cantos perfeitos, tenta usar a imagem inteira
+    # Se não achou 4 cantos perfeitos (como num screenshot do PC), usa a imagem inteira
     if docCnt is not None:
         paper = four_point_transform(gray, docCnt.reshape(4, 2))
     else:
         paper = gray
 
     # 2. Thresholding - inverte cores para que as bolinhas preenchidas fiquem BRANCAS e o fundo PRETO
+    # Aqui tem um detalhe: se a imagem (screenshot) tiver fundo cinza claro, OTSU pode se perder.
+    # Mas deixaremos OTSU para tentar se adaptar.
     thresh = cv2.threshold(paper, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]
 
     # 3. Encontrar contornos na folha achatada para isolar as bolinhas
@@ -81,20 +88,14 @@ def process_omr(image_bytes, num_questions=20):
         (x, y, w, h) = cv2.boundingRect(c)
         ar = w / float(h)
         # Filtro de forma: bolinhas têm aspecto entre 0.8 e 1.2
-        # Tamanho mínimo ajustado para garantir que não pegue sujeira
         if w >= 15 and h >= 15 and ar >= 0.8 and ar <= 1.2:
             questionCnts.append(c)
 
     results = {}
     options_map = ["A", "B", "C", "D", "E"]
     
-    # Se a foto for ruim e não acharmos bolinhas suficientes, falha graciosamente
-    if len(questionCnts) < num_questions * 5:
-        print(f"AVISO OMR: Achamos apenas {len(questionCnts)} contornos. Pode haver erros de leitura.")
-
+    # Se achamos as bolinhas, vamos processar
     if len(questionCnts) > 0:
-        # 4. Dividir as bolinhas em Coluna Esquerda e Coluna Direita 
-        # (Nosso template tem questoes 1-10 na esquerda e 11-20 na direita)
         center_x = paper.shape[1] // 2
         left_cnts = [c for c in questionCnts if cv2.boundingRect(c)[0] < center_x]
         right_cnts = [c for c in questionCnts if cv2.boundingRect(c)[0] >= center_x]
@@ -103,53 +104,86 @@ def process_omr(image_bytes, num_questions=20):
             if len(column_cnts) == 0:
                 return
             
-            # Ordena a coluna inteira de cima para baixo
-            column_cnts = contours.sort_contours(column_cnts, method="top-to-bottom")[0]
-            
-            # Processa as bolinhas de 5 em 5 (uma linha = uma questão)
-            for (q, i) in enumerate(np.arange(0, len(column_cnts), 5)):
-                if q >= max_questions_in_col:
-                    break
-                if i + 5 > len(column_cnts):
-                    break 
+            try:
+                # Ordena a coluna inteira de cima para baixo
+                column_cnts = contours.sort_contours(column_cnts, method="top-to-bottom")[0]
                 
-                # Pega as 5 bolinhas daquela linha
-                cnts_row = column_cnts[i:i + 5]
-                # Ordena a linha da esquerda para a direita (A, B, C, D, E)
-                cnts_row = contours.sort_contours(cnts_row, method="left-to-right")[0]
-                
-                bubbled = None
-                max_pixels = 0
-                
-                for (j, c) in enumerate(cnts_row):
-                    # Cria uma mascara para aquela bolinha especifica
-                    mask = np.zeros(thresh.shape, dtype="uint8")
-                    cv2.drawContours(mask, [c], -1, 255, -1)
+                # Processa as bolinhas de 5 em 5 (uma linha = uma questão)
+                for (q, i) in enumerate(np.arange(0, len(column_cnts), 5)):
+                    if q >= max_questions_in_col:
+                        break
+                    if i + 5 > len(column_cnts):
+                        break 
                     
-                    # Aplica a mascara na imagem binarizada e conta os pixels "brancos" (marcados a caneta)
-                    mask = cv2.bitwise_and(thresh, thresh, mask=mask)
-                    total_pixels = cv2.countNonZero(mask)
+                    cnts_row = column_cnts[i:i + 5]
                     
-                    # Salva qual bolinha tem mais pixels
-                    if total_pixels > max_pixels:
-                        max_pixels = total_pixels
-                        bubbled = j
+                    # Evitar crash se, por acaso, cortarmos algo menor que 1
+                    if len(cnts_row) == 0:
+                        continue
                         
-                # Define se a bolinha "mais cheia" está realmente preenchida (evitar que uma sujeira vença)
-                area = cv2.contourArea(cnts_row[0])
-                if max_pixels > (area * 0.4): # Pelo menos 40% da bolinha pintada
-                    results[str(start_q_num + q)] = options_map[bubbled]
-                else:
-                    results[str(start_q_num + q)] = None # Deixou em branco
+                    cnts_row = contours.sort_contours(cnts_row, method="left-to-right")[0]
                     
-        # Processa Coluna Esquerda (Questões 1 a 10)
+                    bubbled = None
+                    max_pixels = 0
+                    
+                    for (j, c) in enumerate(cnts_row):
+                        mask = np.zeros(thresh.shape, dtype="uint8")
+                        cv2.drawContours(mask, [c], -1, 255, -1)
+                        mask = cv2.bitwise_and(thresh, thresh, mask=mask)
+                        total_pixels = cv2.countNonZero(mask)
+                        
+                        if total_pixels > max_pixels:
+                            max_pixels = total_pixels
+                            bubbled = j
+                            
+                    area = cv2.contourArea(cnts_row[0])
+                    # Verifica se tem ao menos 40% da área preenchida e previne erro de indice se j >= 5
+                    if bubbled is not None and max_pixels > (area * 0.4) and bubbled < len(options_map):
+                        results[str(start_q_num + q)] = options_map[bubbled]
+                    else:
+                        results[str(start_q_num + q)] = None
+            except Exception as e:
+                print(f"Erro ao processar coluna: {e}")
+                    
         process_column(left_cnts, 1, 10)
-        # Processa Coluna Direita (Questões 11 a 20)
         process_column(right_cnts, 11, 10)
 
-    # Preenche o que a câmera não conseguiu ler como "None"
-    for q in range(1, num_questions + 1):
-        if str(q) not in results:
-            results[str(q)] = None
+    # 4. Gerar o boletim final comparando com o answer_key
+    score = 0
+    details = {}
+    
+    if isinstance(answer_key, dict):
+        # Percorre o answer_key oficial passado pelo frontend
+        for q_num, correct_ans in answer_key.items():
+            marked_ans = results.get(str(q_num), None)
+            is_correct = (marked_ans == correct_ans)
+            
+            if is_correct:
+                score += 1
+                
+            details[str(q_num)] = {
+                "correct": correct_ans,
+                "marked": marked_ans,
+                "is_correct": is_correct
+            }
+        
+        total_questions = len(answer_key)
+    else:
+        # Fallback de segurança se mandarem algo errado
+        total_questions = num_questions
+        for q_num in range(1, total_questions + 1):
+            marked_ans = results.get(str(q_num), None)
+            details[str(q_num)] = {
+                "correct": "A", # Falso positivo se quebrar a API
+                "marked": marked_ans,
+                "is_correct": marked_ans == "A"
+            }
 
-    return results
+    percentage = (score / total_questions) * 100 if total_questions > 0 else 0
+
+    return {
+        "score": score,
+        "total": total_questions,
+        "percentage": percentage,
+        "details": details
+    }
