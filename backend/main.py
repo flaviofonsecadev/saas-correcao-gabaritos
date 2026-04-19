@@ -61,7 +61,7 @@ async def grade_exam(
         # Converte o answer_key (JSON) para dict Python
         parsed_key = json.loads(answer_key)
         
-        # Processa a imagem e compara com as respostas
+        # Chama a função REAL de OMR (agora usa visão computacional de verdade)
         resultado = process_omr(image_bytes, parsed_key)
 
         # Se houver conexão com o Supabase e um exam_id foi passado, salvar o resultado no banco
