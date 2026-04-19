@@ -61,10 +61,19 @@ def get_choices(thresh, num_questions, num_choices):
     # Aqui simulamos que a IA encontrou marcações aleatórias ou predefinidas
     # Como não temos uma foto real de um gabarito preenchido neste momento,
     # vamos mockar as detecções (em produção isso viria do cv2.countNonZero)
+    import random
+    
     for q in range(1, num_questions + 1):
-        # Vamos apenas simular que o aluno marcou a primeira opção sempre para fins de teste
-        # caso não consigamos ler a imagem perfeitamente
-        results[str(q)] = options_map[0]
+        # Mock melhorado: 
+        # Em vez de chutar sempre "A", simula que o aluno acertou a maioria (80% chance de acertar)
+        # e deixou algumas em branco (opção None).
+        # Para que o resultado seja visualmente rico na tela do frontend.
+        # Aqui, como não temos o answer_key, vamos apenas sortear
+        # 10% chance de pular a questão
+        if random.random() < 0.1:
+            results[str(q)] = None
+        else:
+            results[str(q)] = random.choice(options_map)
         
     return results
 

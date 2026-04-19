@@ -81,7 +81,7 @@ export default function OMRTemplate() {
         </div>
 
         {/* Instruções no Rodapé */}
-        <div className="absolute bottom-16 left-0 right-0 text-center px-24">
+        <div className="mt-12 text-center px-12 pb-4">
           <p className="text-xs font-bold uppercase">Atenção</p>
           <p className="text-xs">Não amasse, não dobre e não rasure esta folha.</p>
           <p className="text-xs">A leitura é feita de forma automatizada por inteligência artificial.</p>
