@@ -64,11 +64,17 @@ O backend é responsável por receber as imagens do frontend e processar o recon
      source venv/bin/activate
      ```
 
-3. Instale as dependências:
+3. Instale as dependências. Você pode usar o arquivo de requisitos ou instalar pacote por pacote:
+
+   **Opção A (Recomendada):**
    ```bash
    pip install -r requirements.txt
    ```
-   > As dependências principais incluem: `fastapi`, `uvicorn`, `opencv-python-headless`, `numpy`, `pydantic`, `python-multipart`, `python-dotenv`, `supabase` e `imutils`.
+
+   **Opção B (Se ocorrer erro no requirements):**
+   ```bash
+   pip install fastapi uvicorn opencv-python-headless numpy pydantic python-multipart python-dotenv supabase imutils
+   ```
 
 4. Configure as variáveis de ambiente:
    - Duplique o arquivo `.env.example` e renomeie para `.env`.
