@@ -8,27 +8,44 @@ CREATE TABLE schools (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 ALTER TABLE schools ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Anyone can read schools" ON schools FOR SELECT USING (true);
 
 
 -- 2. Criar tabela de Professores (Estende a tabela nativa do Supabase Auth)
 CREATE TABLE professors (
   id UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
-  school_id UUID REFERENCES schools(id) ON DELETE SET NULL, -- A qual escola este professor pertence
   name TEXT NOT NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 ALTER TABLE professors ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Professors can view own profile" ON professors FOR SELECT USING (auth.uid() = id);
 CREATE POLICY "Professors can update own profile" ON professors FOR UPDATE USING (auth.uid() = id);
--- Um professor pode ver outros professores da mesma escola
-CREATE POLICY "Professors can view colleagues" ON professors FOR SELECT USING (
-  school_id IN (SELECT school_id FROM professors WHERE id = auth.uid())
+
+
+-- 2.1 Criar tabela de Junção (Professores x Escolas)
+CREATE TABLE school_professors (
+  school_id UUID REFERENCES schools(id) ON DELETE CASCADE,
+  professor_id UUID REFERENCES professors(id) ON DELETE CASCADE,
+  role TEXT NOT NULL DEFAULT 'teacher', -- 'admin' ou 'teacher'
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  PRIMARY KEY (school_id, professor_id)
+);
+ALTER TABLE school_professors ENABLE ROW LEVEL SECURITY;
+
+-- Um professor pode ver seus próprios vínculos
+CREATE POLICY "Professors can view own school links" ON school_professors FOR SELECT USING (professor_id = auth.uid());
+-- Um professor admin pode gerenciar vínculos daquela escola
+CREATE POLICY "Admins can manage school links" ON school_professors FOR ALL USING (
+  school_id IN (SELECT school_id FROM school_professors WHERE professor_id = auth.uid() AND role = 'admin')
+);
+
+-- Agora podemos definir as políticas da tabela schools:
+-- Um professor só vê as escolas que ele participa
+CREATE POLICY "Professors can read their schools" ON schools FOR SELECT USING (
+  id IN (SELECT school_id FROM school_professors WHERE professor_id = auth.uid())
 );
 
 
 -- 3. Criar tabela de Turmas/Classes
--- Exemplo: "8º Ano A"
 CREATE TABLE classes (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
   school_id UUID REFERENCES schools(id) ON DELETE CASCADE NOT NULL,
@@ -37,14 +54,13 @@ CREATE TABLE classes (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 ALTER TABLE classes ENABLE ROW LEVEL SECURITY;
--- Professores da mesma escola podem gerenciar e ver as turmas da escola
+-- Professores podem ver e gerenciar as turmas das escolas que eles pertencem
 CREATE POLICY "Professors manage school classes" ON classes FOR ALL USING (
-  school_id IN (SELECT school_id FROM professors WHERE id = auth.uid())
+  school_id IN (SELECT school_id FROM school_professors WHERE professor_id = auth.uid())
 );
 
 
 -- 4. Criar tabela de Alunos
--- Alunos pertencem à Escola, não apenas a um professor
 CREATE TABLE students (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
   school_id UUID REFERENCES schools(id) ON DELETE CASCADE NOT NULL,
@@ -56,16 +72,16 @@ CREATE TABLE students (
 ALTER TABLE students ENABLE ROW LEVEL SECURITY;
 -- Professores da escola podem gerenciar todos os alunos da escola
 CREATE POLICY "Professors manage school students" ON students FOR ALL USING (
-  school_id IN (SELECT school_id FROM professors WHERE id = auth.uid())
+  school_id IN (SELECT school_id FROM school_professors WHERE professor_id = auth.uid())
 );
--- Aluno pode ler seu próprio perfil (usado no frontend do aluno)
+-- Aluno pode ler seu próprio perfil (A API usará Service Role ou validação de código)
 CREATE POLICY "Students can read own profile" ON students FOR SELECT USING (true);
 
 
 -- 5. Criar tabela de Provas/Gabaritos Oficiais
--- Agora inclui a "disciplina" (subject), pois um professor pode dar Matemática e Física para o 8º Ano A
 CREATE TABLE exams (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  school_id UUID REFERENCES schools(id) ON DELETE CASCADE NOT NULL, -- O contexto da prova é a escola
   professor_id UUID REFERENCES professors(id) ON DELETE CASCADE NOT NULL,
   class_id UUID REFERENCES classes(id) ON DELETE CASCADE NOT NULL,
   subject TEXT NOT NULL, -- Ex: "Matemática", "Física"
@@ -75,8 +91,11 @@ CREATE TABLE exams (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 ALTER TABLE exams ENABLE ROW LEVEL SECURITY;
--- Professores gerenciam suas próprias provas
-CREATE POLICY "Professors manage own exams" ON exams FOR ALL USING (auth.uid() = professor_id);
+-- Professores gerenciam suas próprias provas dentro da escola
+CREATE POLICY "Professors manage own exams" ON exams FOR ALL USING (
+  professor_id = auth.uid() AND 
+  school_id IN (SELECT school_id FROM school_professors WHERE professor_id = auth.uid())
+);
 -- Alunos podem ler as provas que pertencem à sua turma
 CREATE POLICY "Students can read class exams" ON exams FOR SELECT USING (true);
 
@@ -100,6 +119,3 @@ CREATE POLICY "Professors manage results for own exams" ON results FOR ALL USING
 );
 -- Alunos podem ver APENAS seus próprios resultados
 CREATE POLICY "Students can read own results" ON results FOR SELECT USING (true);
-
--- * Nota sobre a política do aluno: No frontend, a API validará o enrollment_code (matrícula)
--- para retornar apenas os dados dele, sem precisar de Auth complexa para o estudante.
