@@ -55,12 +55,18 @@ export default function Home() {
           SaaS - Correção de Gabaritos
         </h1>
         
-        <div className="flex justify-center mb-6">
+        <div className="flex justify-center gap-4 mb-6">
+          <a 
+            href="/dashboard" 
+            className="text-white bg-gray-800 hover:bg-gray-900 font-semibold px-4 py-2 rounded-md shadow transition-colors flex items-center gap-2"
+          >
+            🏠 Ir para o Dashboard
+          </a>
           <a 
             href="/template" 
-            className="text-blue-600 hover:text-blue-800 font-semibold underline flex items-center gap-2 bg-blue-50 px-4 py-2 rounded-md"
+            className="text-blue-600 hover:text-blue-800 font-semibold underline flex items-center gap-2 bg-blue-50 px-4 py-2 rounded-md transition-colors"
           >
-            🖨️ Imprimir / Baixar Template em PDF
+            🖨️ Baixar Template em PDF
           </a>
         </div>
 
